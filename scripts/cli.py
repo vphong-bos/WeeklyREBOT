@@ -8,6 +8,7 @@ from app.utils.dates import get_previous_week_range
 
 VALID_MODES = {"report", "prompt"}
 VALID_LLM_PROVIDERS = {"huggingface", "template"}
+VALID_RETRIEVAL_MODES = {"member", "leader"}
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -33,6 +34,9 @@ Examples:
 
   # Only create a prompt from retrieved Jira info, not the final report
   python scripts/generate_weekly_report.py --mode prompt --start 2026-05-04 --end 2026-05-10 --output-path data/processed/weekly_prompt.md
+
+  # Retrieve leader-mode comments that mention the configured Jira account
+  python scripts/generate_weekly_report.py --retrieval-mode leader --mode prompt --start 2026-05-04 --end 2026-05-10
 
   # Print result to terminal instead of writing file
   python scripts/generate_weekly_report.py --mode prompt --stdout
@@ -82,6 +86,16 @@ Examples:
     parser.add_argument(
         "--hf-api-token",
         help="Override HF_API_TOKEN from .env for this run. Avoid using this in shell history if possible.",
+    )
+    parser.add_argument(
+        "--retrieval-mode",
+        choices=sorted(VALID_RETRIEVAL_MODES),
+        default="member",
+        help=(
+            "Comment retrieval mode."
+            "  member: only comments written by JIRA_ACCOUNT_ID."
+            "  leader: comments that mention JIRA_ACCOUNT_ID."
+        ),
     )
     parser.add_argument(
         "--stdout",
@@ -142,7 +156,11 @@ def main():
     week_start, week_end = resolve_week_range(args)
 
     bot = WeeklyReportBot(settings)
-    report_items = bot.collect_report_items(week_start, week_end)
+    report_items = bot.collect_report_items(
+        week_start,
+        week_end,
+        retrieval_mode=args.retrieval_mode,
+    )
     print_retrieved_comments(report_items)
 
     if args.mode == "report":

@@ -90,7 +90,7 @@ Note:
 ## How To Run
 Run from the `WeeklyREBOT` directory.
 
-Generate a report for the previous week:
+Generate a prompt for the previous week:
 ```bash
 python -m scripts.cli
 ```
@@ -98,8 +98,9 @@ python -m scripts.cli
 Note:
 - The current default mode is `prompt`.
 - To generate a final report, pass `--mode report`.
+- The current default retrieval mode is `member`.
 
-Generate a report for a custom week:
+Generate a prompt for a custom week:
 ```bash
 python -m scripts.cli --start 2026-05-04 --end 2026-05-10
 ```
@@ -109,10 +110,29 @@ Generate a prompt only:
 python -m scripts.cli --mode prompt --start 2026-05-04 --end 2026-05-10
 ```
 
+Generate a final report:
+```bash
+python -m scripts.cli --mode report --start 2026-05-04 --end 2026-05-10
+```
+
 Use template mode instead of Hugging Face:
 ```bash
 python -m scripts.cli --mode report --llm-provider template
 ```
+
+Use `member` retrieval mode:
+```bash
+python -m scripts.cli --retrieval-mode member --mode prompt --start 2026-05-04 --end 2026-05-10
+```
+
+Use `leader` retrieval mode:
+```bash
+python -m scripts.cli --retrieval-mode leader --mode prompt --start 2026-05-04 --end 2026-05-10
+```
+
+Retrieval mode behavior:
+- `member`: keeps comments authored by `JIRA_ACCOUNT_ID`
+- `leader`: keeps comments that mention `JIRA_ACCOUNT_ID` in the Jira comment body
 
 Print the generated output to the terminal:
 ```bash

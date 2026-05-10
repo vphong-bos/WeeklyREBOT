@@ -215,7 +215,12 @@ class WeeklyReportBot:
                 print(f"{field_id}: {field_name}")
                 print(value)
 
-    def collect_report_items(self, week_start: date, week_end: date) -> list[dict]:
+    def collect_report_items(
+        self,
+        week_start: date,
+        week_end: date,
+        retrieval_mode: str = "member",
+    ) -> list[dict]:
         issues = self.jira.search_issues(str(week_start), str(week_end))
         report_items = []
 
@@ -229,6 +234,7 @@ class WeeklyReportBot:
                 jira_account_id=self.settings.jira_account_id,
                 week_start=week_start,
                 week_end=week_end,
+                mode=retrieval_mode,
             )
 
             if not my_comments:
@@ -254,8 +260,17 @@ class WeeklyReportBot:
 
         return report_items
 
-    def collect_retrieved_comments(self, week_start: date, week_end: date) -> list[dict]:
-        report_items = self.collect_report_items(week_start, week_end)
+    def collect_retrieved_comments(
+        self,
+        week_start: date,
+        week_end: date,
+        retrieval_mode: str = "member",
+    ) -> list[dict]:
+        report_items = self.collect_report_items(
+            week_start,
+            week_end,
+            retrieval_mode=retrieval_mode,
+        )
         retrieved_comments: list[dict] = []
 
         for item in report_items:
@@ -300,21 +315,44 @@ class WeeklyReportBot:
             report_items=report_items,
         )
 
-    def generate_prompt(self, week_start: date, week_end: date) -> str:
-        report_items = self.collect_report_items(week_start, week_end)
+    def generate_prompt(
+        self,
+        week_start: date,
+        week_end: date,
+        retrieval_mode: str = "member",
+    ) -> str:
+        report_items = self.collect_report_items(
+            week_start,
+            week_end,
+            retrieval_mode=retrieval_mode,
+        )
         return self.generate_prompt_from_items(week_start, week_end, report_items)
 
-    def generate_template(self, week_start: date, week_end: date) -> str:
-        report_items = self.collect_report_items(week_start, week_end)
+    def generate_template(
+        self,
+        week_start: date,
+        week_end: date,
+        retrieval_mode: str = "member",
+    ) -> str:
+        report_items = self.collect_report_items(
+            week_start,
+            week_end,
+            retrieval_mode=retrieval_mode,
+        )
         return self.generate_template_from_items(week_start, week_end, report_items)
 
     def generate_with_huggingface(
         self,
         week_start: date,
         week_end: date,
+        retrieval_mode: str = "member",
         model: str | None = None,
     ) -> str:
-        report_items = self.collect_report_items(week_start, week_end)
+        report_items = self.collect_report_items(
+            week_start,
+            week_end,
+            retrieval_mode=retrieval_mode,
+        )
         return self.generate_with_huggingface_from_items(
             week_start,
             week_end,
@@ -343,6 +381,7 @@ class WeeklyReportBot:
         week_start: date,
         week_end: date,
         *,
+        retrieval_mode: str = "member",
         llm_provider: str = "huggingface",
         model: str | None = None,
     ) -> str:
@@ -350,11 +389,16 @@ class WeeklyReportBot:
             return self.generate_with_huggingface(
                 week_start=week_start,
                 week_end=week_end,
+                retrieval_mode=retrieval_mode,
                 model=model,
             )
 
         if llm_provider == "template":
-            return self.generate_template(week_start, week_end)
+            return self.generate_template(
+                week_start,
+                week_end,
+                retrieval_mode=retrieval_mode,
+            )
 
         raise ValueError(f"Unsupported llm_provider: {llm_provider}")
 
