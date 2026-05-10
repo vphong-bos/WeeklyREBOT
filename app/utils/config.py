@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
 
@@ -12,7 +13,10 @@ class Settings:
     jira_api_token: str
     jira_account_id: str
     jira_project_keys: list[str]
-    report_output_path: str
+    hf_model: str
+    hf_device: str
+    hf_max_new_tokens: int
+    hf_temperature: float
 
 
 def get_settings() -> Settings:
@@ -24,8 +28,8 @@ def get_settings() -> Settings:
         jira_api_token=os.environ["JIRA_API_TOKEN"],
         jira_account_id=os.environ["JIRA_ACCOUNT_ID"],
         jira_project_keys=[key.strip() for key in project_keys.split(",") if key.strip()],
-        report_output_path=os.getenv(
-            "REPORT_OUTPUT_PATH",
-            "data/processed/weekly_report.md",
-        ),
+        hf_model=os.getenv("HF_MODEL", "Qwen/Qwen2.5-0.5B-Instruct"),
+        hf_device=os.getenv("HF_DEVICE", "auto"),
+        hf_max_new_tokens=int(os.getenv("HF_MAX_NEW_TOKENS", "1200")),
+        hf_temperature=float(os.getenv("HF_TEMPERATURE", "0.2")),
     )
