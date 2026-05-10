@@ -4,44 +4,48 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-def adf_to_text(
-    node: Any,
-    *,
-    include_urls: bool = True,
-    include_media_placeholders: bool = True,
-    include_status: bool = True,
-    table_cell_separator: str = " | ",
-) -> str:
+class ADFTextConverter:
     """
     Convert Atlassian Document Format JSON into readable plain text.
 
-    Designed to be defensive and MVP-friendly while supporting most common ADF nodes.
+    This converter handles ADF content text, including links inside comments
+    and descriptions.
 
-    Args:
-        node:
-            ADF node, list of nodes, string, or None.
-        include_urls:
-            Whether to append URLs for links, inline cards, media, etc.
-        include_media_placeholders:
-            Whether to include placeholders like [media: filename].
-        include_status:
-            Whether to include status lozenges as text.
-        table_cell_separator:
-            Separator used between table cells.
-    Returns:
-        Plain text representation of the ADF document.
+    Jira issue metadata such as issue link, start time, and due time should be
+    extracted from Jira issue fields, not from ADF attrs.
     """
 
-    def normalize(text: str) -> str:
-        # Keep intentional newlines, but trim trailing whitespace per line.
+    def __init__(
+        self,
+        *,
+        include_urls: bool = True,
+        include_media_placeholders: bool = True,
+        include_status: bool = True,
+        table_cell_separator: str = " | ",
+    ) -> None:
+        self.include_urls = include_urls
+        self.include_media_placeholders = include_media_placeholders
+        self.include_status = include_status
+        self.table_cell_separator = table_cell_separator
+
+    def convert(self, node: Any) -> str:
+        return self._normalize(self._walk(node))
+
+    def _normalize(self, text: str) -> str:
         lines = [line.rstrip() for line in text.splitlines()]
         return "\n".join(lines).strip()
 
-    def join_blocks(parts: list[str]) -> str:
+    def _join_blocks(self, parts: list[str]) -> str:
         cleaned = [part.strip("\n") for part in parts if part and part.strip()]
         return "\n".join(cleaned)
 
-    def walk(value: Any, *, list_depth: int = 0, ordered_index: int | None = None) -> str:
+    def _walk(
+        self,
+        value: Any,
+        *,
+        list_depth: int = 0,
+        ordered_index: int | None = None,
+    ) -> str:
         if value is None:
             return ""
 
@@ -50,7 +54,11 @@ def adf_to_text(
 
         if isinstance(value, list):
             return "".join(
-                walk(child, list_depth=list_depth, ordered_index=ordered_index)
+                self._walk(
+                    child,
+                    list_depth=list_depth,
+                    ordered_index=ordered_index,
+                )
                 for child in value
             )
 
@@ -66,7 +74,7 @@ def adf_to_text(
         # Root / generic containers
         # -------------------------
         if node_type == "doc":
-            return join_blocks([walk(child) for child in content]) + "\n"
+            return self._join_blocks([self._walk(child) for child in content]) + "\n"
 
         if node_type in {
             "layoutSection",
@@ -77,30 +85,24 @@ def adf_to_text(
             "expand",
         }:
             title = attrs.get("title") or attrs.get("text")
-            body = join_blocks([walk(child) for child in content])
-            if title and body:
-                return f"{title}\n{body}\n"
+            body = self._join_blocks([self._walk(child) for child in content])
+
+            parts = []
             if title:
-                return f"{title}\n"
-            return body + ("\n" if body else "")
+                parts.append(str(title))
+            if body:
+                parts.append(body)
+
+            return "\n".join(parts) + ("\n" if parts else "")
 
         # -------------------------
         # Text and inline nodes
         # -------------------------
         if node_type == "text":
-            text = value.get("text", "")
-
-            if include_urls:
-                href = None
-                for mark in marks:
-                    if mark.get("type") == "link":
-                        href = (mark.get("attrs") or {}).get("href")
-                        break
-
-                if href and href not in text:
-                    text = f"{text} ({href})"
-
-            return text
+            return self._format_text_node(
+                text=value.get("text", ""),
+                marks=marks,
+            )
 
         if node_type == "hardBreak":
             return "\n"
@@ -112,36 +114,25 @@ def adf_to_text(
             return attrs.get("shortName") or attrs.get("text") or attrs.get("id") or ""
 
         if node_type == "date":
-            timestamp = attrs.get("timestamp")
-            if timestamp:
-                try:
-                    # ADF date timestamp is usually milliseconds.
-                    ts = int(timestamp) / 1000
-                    return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
-                except Exception:
-                    return str(timestamp)
-            return ""
+            return self._format_adf_date(attrs)
 
         if node_type == "status":
-            if not include_status:
+            if not self.include_status:
                 return ""
             text = attrs.get("text") or ""
             color = attrs.get("color")
             return f"[{text}]" if text else (f"[status: {color}]" if color else "")
 
         if node_type == "inlineCard":
-            url = attrs.get("url")
-            data = attrs.get("data") or {}
-            title = (
-                data.get("name")
-                or data.get("title")
-                or data.get("text")
-                or attrs.get("title")
-                or url
-            )
-            if include_urls and url and title and title != url:
-                return f"{title} ({url})"
-            return title or ""
+            return self._format_card(attrs)
+
+        if node_type == "blockCard":
+            card = self._format_card(attrs)
+            return card + ("\n" if card else "")
+
+        if node_type == "embedCard":
+            card = self._format_card(attrs)
+            return card + ("\n" if card else "")
 
         if node_type == "placeholder":
             return attrs.get("text", "")
@@ -150,25 +141,28 @@ def adf_to_text(
         # Blocks
         # -------------------------
         if node_type == "paragraph":
-            text = walk(content, list_depth=list_depth)
+            text = self._walk(content, list_depth=list_depth)
             return text + ("\n" if text else "")
 
         if node_type == "heading":
             level = attrs.get("level", 1)
-            text = walk(content, list_depth=list_depth).strip()
+            text = self._walk(content, list_depth=list_depth).strip()
             if not text:
                 return ""
             return f"{'#' * max(1, min(int(level), 6))} {text}\n"
 
         if node_type == "blockquote":
-            text = normalize(walk(content, list_depth=list_depth))
+            text = self._normalize(self._walk(content, list_depth=list_depth))
             if not text:
                 return ""
-            return "\n".join(f"> {line}" if line else ">" for line in text.splitlines()) + "\n"
+            return "\n".join(
+                f"> {line}" if line else ">"
+                for line in text.splitlines()
+            ) + "\n"
 
         if node_type == "codeBlock":
             language = attrs.get("language")
-            code = walk(content, list_depth=list_depth).rstrip("\n")
+            code = self._walk(content, list_depth=list_depth).rstrip("\n")
             if language:
                 return f"```{language}\n{code}\n```\n"
             return f"```\n{code}\n```\n"
@@ -178,9 +172,10 @@ def adf_to_text(
 
         if node_type == "panel":
             panel_type = attrs.get("panelType")
-            text = normalize(walk(content, list_depth=list_depth))
+            text = self._normalize(self._walk(content, list_depth=list_depth))
             if not text:
                 return ""
+
             prefix = f"[{panel_type}] " if panel_type else ""
             return f"{prefix}{text}\n"
 
@@ -188,7 +183,10 @@ def adf_to_text(
         # Lists
         # -------------------------
         if node_type == "bulletList":
-            return "".join(walk(child, list_depth=list_depth + 1) for child in content)
+            return "".join(
+                self._walk(child, list_depth=list_depth + 1)
+                for child in content
+            )
 
         if node_type == "orderedList":
             start = attrs.get("order", attrs.get("start", 1))
@@ -200,7 +198,7 @@ def adf_to_text(
             parts = []
             for index, child in enumerate(content, start=start):
                 parts.append(
-                    walk(
+                    self._walk(
                         child,
                         list_depth=list_depth + 1,
                         ordered_index=index,
@@ -209,7 +207,7 @@ def adf_to_text(
             return "".join(parts)
 
         if node_type == "listItem":
-            text = normalize(walk(content, list_depth=list_depth))
+            text = self._normalize(self._walk(content, list_depth=list_depth))
             if not text:
                 return ""
 
@@ -218,10 +216,7 @@ def adf_to_text(
             lines = text.splitlines()
 
             first = f"{indent}{bullet} {lines[0]}"
-            rest = [
-                f"{indent}  {line}" if line else ""
-                for line in lines[1:]
-            ]
+            rest = [f"{indent}  {line}" if line else "" for line in lines[1:]]
 
             return "\n".join([first, *rest]) + "\n"
 
@@ -229,64 +224,63 @@ def adf_to_text(
         # Tasks and decisions
         # -------------------------
         if node_type == "taskList":
-            return "".join(walk(child, list_depth=list_depth) for child in content)
+            return "".join(
+                self._walk(child, list_depth=list_depth)
+                for child in content
+            )
 
         if node_type == "taskItem":
             state = attrs.get("state")
             checkbox = "[x]" if state == "DONE" else "[ ]"
-            text = normalize(walk(content, list_depth=list_depth))
+            text = self._normalize(self._walk(content, list_depth=list_depth))
             return f"{checkbox} {text}\n" if text else f"{checkbox}\n"
 
         if node_type == "decisionList":
-            return "".join(walk(child, list_depth=list_depth) for child in content)
+            return "".join(
+                self._walk(child, list_depth=list_depth)
+                for child in content
+            )
 
         if node_type == "decisionItem":
-            text = normalize(walk(content, list_depth=list_depth))
+            text = self._normalize(self._walk(content, list_depth=list_depth))
             return f"Decision: {text}\n" if text else ""
 
         # -------------------------
         # Tables
         # -------------------------
         if node_type == "table":
-            rows = [walk(child, list_depth=list_depth).rstrip("\n") for child in content]
+            rows = [
+                self._walk(child, list_depth=list_depth).rstrip("\n")
+                for child in content
+            ]
             rows = [row for row in rows if row.strip()]
             return "\n".join(rows) + ("\n" if rows else "")
 
         if node_type == "tableRow":
             cells = []
             for child in content:
-                cell_text = normalize(walk(child, list_depth=list_depth))
+                cell_text = self._normalize(self._walk(child, list_depth=list_depth))
                 cell_text = " ".join(cell_text.splitlines())
                 cells.append(cell_text)
-            return table_cell_separator.join(cells) + "\n"
+            return self.table_cell_separator.join(cells) + "\n"
 
         if node_type in {"tableCell", "tableHeader"}:
-            return walk(content, list_depth=list_depth)
+            return self._walk(content, list_depth=list_depth)
 
         # -------------------------
         # Media / files
         # -------------------------
         if node_type == "mediaSingle":
-            return walk(content, list_depth=list_depth)
+            return self._walk(content, list_depth=list_depth)
 
         if node_type == "mediaGroup":
-            return "".join(walk(child, list_depth=list_depth) for child in content)
+            return "".join(
+                self._walk(child, list_depth=list_depth)
+                for child in content
+            )
 
         if node_type == "media":
-            if not include_media_placeholders:
-                return ""
-
-            media_type = attrs.get("type")
-            alt = attrs.get("alt")
-            filename = attrs.get("fileName") or attrs.get("filename") or attrs.get("name")
-            url = attrs.get("url")
-
-            label = alt or filename or media_type or "media"
-
-            if include_urls and url:
-                return f"[media: {label}] ({url})\n"
-
-            return f"[media: {label}]\n"
+            return self._format_media(attrs)
 
         # -------------------------
         # Jira / Confluence special-ish nodes
@@ -300,20 +294,121 @@ def adf_to_text(
             return f"[unsupported inline: {original}]" if original else ""
 
         if node_type == "fragment":
-            return walk(content, list_depth=list_depth)
+            return self._walk(content, list_depth=list_depth)
 
         # -------------------------
-        # Fallback:
-        # If the node has content, recursively parse it.
-        # If not, try useful attrs.
+        # Fallback
         # -------------------------
         if content:
-            return walk(content, list_depth=list_depth)
+            return self._walk(content, list_depth=list_depth)
 
-        for key in ("text", "title", "name", "label", "url", "id"):
+        fallback_keys = ("text", "title", "name", "label", "id")
+        if self.include_urls:
+            fallback_keys = ("text", "title", "name", "label", "url", "href", "link", "id")
+
+        for key in fallback_keys:
             if attrs.get(key):
                 return str(attrs[key])
 
         return ""
 
-    return normalize(walk(node))
+    def _format_text_node(self, text: str, marks: list[dict[str, Any]]) -> str:
+        if not text:
+            return ""
+
+        if not self.include_urls:
+            return text
+
+        href = self._extract_link_from_marks(marks)
+        if not href:
+            return text
+
+        if href == text:
+            return href
+
+        return f"[{text}]({href})"
+
+    def _extract_link_from_marks(self, marks: list[dict[str, Any]]) -> str | None:
+        for mark in marks:
+            if mark.get("type") != "link":
+                continue
+
+            attrs = mark.get("attrs") or {}
+            href = attrs.get("href") or attrs.get("url") or attrs.get("link")
+
+            if href:
+                return str(href)
+
+        return None
+
+    def _format_card(self, attrs: dict[str, Any]) -> str:
+        url = attrs.get("url") or attrs.get("href") or attrs.get("link")
+        data = attrs.get("data") or {}
+
+        title = (
+            data.get("name")
+            or data.get("title")
+            or data.get("text")
+            or attrs.get("title")
+            or attrs.get("text")
+            or url
+        )
+
+        if self.include_urls and url and title and title != url:
+            return f"[{title}]({url})"
+
+        return title or ""
+
+    def _format_media(self, attrs: dict[str, Any]) -> str:
+        if not self.include_media_placeholders:
+            return ""
+
+        media_type = attrs.get("type")
+        alt = attrs.get("alt")
+        filename = attrs.get("fileName") or attrs.get("filename") or attrs.get("name")
+        url = attrs.get("url") or attrs.get("href") or attrs.get("link")
+
+        label = alt or filename or media_type or "media"
+
+        if self.include_urls and url:
+            return f"[media: {label}]({url})\n"
+
+        return f"[media: {label}]\n"
+
+    def _format_adf_date(self, attrs: dict[str, Any]) -> str:
+        timestamp = attrs.get("timestamp")
+
+        if timestamp:
+            try:
+                ts = int(timestamp) / 1000
+                return datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
+            except Exception:
+                return str(timestamp)
+
+        return ""
+
+
+def adf_to_text(
+    node: Any,
+    *,
+    include_urls: bool = True,
+    include_media_placeholders: bool = True,
+    include_status: bool = True,
+    table_cell_separator: str = " | ",
+) -> str:
+    """
+    Backward-compatible wrapper.
+
+    Existing imports like this still work:
+
+        from app.utils.adf import adf_to_text
+    """
+
+    converter = ADFTextConverter(
+        include_urls=include_urls,
+        include_media_placeholders=include_media_placeholders,
+        include_status=include_status,
+        table_cell_separator=table_cell_separator,
+    )
+
+    return converter.convert(node)
