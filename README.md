@@ -1,36 +1,130 @@
+![WeeklyREBOT Logo](assets/logo.png)
+
 # WeeklyREBOT
 
-`WeeklyREBOT` is an auto generation project based on JIRA task's comments in one week.
+`WeeklyREBOT` generates a weekly report from Jira issue data and the comments you wrote during a selected week.
 
-The purpose of this bot is to mainly retrieve user's comment, task's info from your task in one week and auto generate weekly report.
+The current flow is:
+1. Search candidate Jira issues in the selected date window.
+2. Fetch issue comments.
+3. Keep only comments written by the configured Jira account.
+4. Build either a prompt, a template report, or a Hugging Face generated report.
 
 ## Project Structure
 
 ```text
 WeeklyREBOT/
+├── assets/
+│   └── logo.png
 ├── app/
-│   ├── api/
-│   ├── bot/
-│   ├── ingestion/
-│   ├── llm/
-│   ├── retrieval/
-│   └── utils/
+│   ├── api/                  # Reserved package for future API integrations
+│   ├── bot/                  # High-level orchestration for weekly report generation
+│   ├── ingestion/            # Jira client and data fetching
+│   ├── llm/                  # Prompt building and Hugging Face generation
+│   ├── retrieval/            # Comment filtering and retrieval logic
+│   ├── utils/                # Shared helpers such as config, dates, and ADF parsing
+│   └── main.py               # App entrypoint module
 ├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── indexes/
+│   ├── raw/                  # Optional raw output storage
+│   ├── processed/            # Generated markdown reports
+│   ├── prompt/               # Generated prompt text files
+│   └── indexes/              # Reserved for future indexing/search use
 ├── scripts/
-├── tests/
-├── .env # Store private api, double check if you want to push
-├── requirements.txt
-└── README.md # It's me
+│   └── cli.py                # Command-line interface used to run the project
+├── tests/                    # Unit tests for retrieval and ADF conversion
+├── .env                      # Local secrets and runtime configuration
+├── .env.example              # Example environment variables
+├── requirements.txt          # Python dependencies
+├── setup_env.sh              # Environment bootstrap script
+└── README.md
+```
 
-## Enviroment setup
+## Key Files
+- `app/ingestion/jira_client.py`: talks to Jira, searches candidate issues, and fetches paginated comments.
+- `app/retrieval/comment_filter.py`: keeps only comments written by `JIRA_ACCOUNT_ID` and only within the selected date range.
+- `app/utils/adf.py`: converts Jira ADF comment/description content into readable plain text.
+- `app/utils/dates.py`: parses Jira timestamps and resolves weekly date ranges.
+- `app/utils/config.py`: loads runtime settings from `.env`.
+- `app/bot/weekly_bot.py`: coordinates Jira retrieval and transforms the result into report items.
+- `app/llm/generator.py`: creates template output and prompt text from retrieved Jira items.
+- `app/llm/hf_client.py`: runs Hugging Face text generation for final report mode.
+- `scripts/cli.py`: main command you run from the terminal.
+- `tests/test_comment_filter.py`: retrieval filter tests.
+- `tests/test_adf.py`: ADF-to-text conversion tests.
+
+## Environment Setup
 Please make sure setup_env.sh executable:
 ```bash
 chmod +x setup_env.sh
 ```
-Then run it, and we are all set:
+
+Then run it:
 ```bash
 ./setup_env.sh
 ```
+
+If you prefer to set things up manually, install dependencies from `requirements.txt` in your virtual environment.
+
+## Configuration
+Create a `.env` file from `.env.example` and fill in your Jira and Hugging Face credentials.
+
+Important variables used by the current code:
+- `JIRA_BASE_URL`: your Jira site URL, for example `https://your-company.atlassian.net`
+- `JIRA_EMAIL`: Jira login email
+- `JIRA_API_TOKEN`: Jira API token used by the client
+- `JIRA_ACCOUNT_ID`: the Jira account ID whose comments should be included
+- `JIRA_PROJECT_KEYS`: optional comma-separated project keys, for example `AISW,OJT`
+- `HF_API_TOKEN`: Hugging Face token
+- `HF_MODEL`: model name used for report generation
+- `HF_DEVICE`: device setting for Transformers, default is `auto`
+- `HF_MAX_NEW_TOKENS`: max generated tokens
+- `HF_TEMPERATURE`: generation temperature
+
+Note:
+- The code reads `JIRA_API_TOKEN`, not `JIRA_API_KEY`.
+- `JIRA_PROJECT_KEYS` can be left empty to search across all accessible projects.
+
+## How To Run
+Run from the `WeeklyREBOT` directory.
+
+Generate a report for the previous week:
+```bash
+python -m scripts.cli
+```
+
+Generate a report for a custom week:
+```bash
+python -m scripts.cli --start 2026-05-04 --end 2026-05-10
+```
+
+Generate a prompt only:
+```bash
+python -m scripts.cli --mode prompt --start 2026-05-04 --end 2026-05-10
+```
+
+Use template mode instead of Hugging Face:
+```bash
+python -m scripts.cli --mode report --llm-provider template
+```
+
+Print the generated output to the terminal:
+```bash
+python -m scripts.cli --mode prompt --stdout
+```
+
+Write to a custom output path:
+```bash
+python -m scripts.cli --start 2026-05-04 --end 2026-05-10 --output-path data/processed/my_report.md
+```
+
+## Current Retrieval Logic
+- Candidate issues are searched by `JIRA_PROJECT_KEYS` and issue `updated` date range.
+- All comments for each candidate issue are fetched with pagination.
+- Only comments authored by `JIRA_ACCOUNT_ID` are kept.
+- Only comments whose `created` timestamp falls inside the selected week are kept.
+- Jira ADF content is converted to plain text before prompt/report generation.
+
+## Output
+- Report mode writes markdown to `data/processed/` by default.
+- Prompt mode writes text to `data/prompt/` by default.
+- The CLI also prints the retrieved comment details and final retrieved comment count during execution.
