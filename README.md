@@ -130,3 +130,9 @@ python -m scripts.cli --start 2026-05-04 --end 2026-05-10 --output-path data/pro
 - Report mode writes markdown to `data/processed/` by default.
 - Prompt mode writes text to `data/prompt/` by default.
 - The CLI also prints the retrieved comment details and final retrieved comment count during execution.
+
+## TODO
+- Feed the generated weekly report into a Confluence-friendly format.
+- Improve prompt generation so the output structure is closer to the final weekly report format.
+- Refine retrieval to better identify only the current user's actual work items, not just issues with comment activity.
+- Support additional related jobs or tasks beyond the current comment-based retrieval flow.
