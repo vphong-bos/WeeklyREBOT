@@ -39,11 +39,13 @@ fi
 mkdir -p \
   "$PROJECT_ROOT/data/raw" \
   "$PROJECT_ROOT/data/processed" \
+  "$PROJECT_ROOT/data/prompt" \
   "$PROJECT_ROOT/data/indexes"
 
 touch \
   "$PROJECT_ROOT/data/raw/.gitkeep" \
   "$PROJECT_ROOT/data/processed/.gitkeep" \
+  "$PROJECT_ROOT/data/prompt/.gitkeep" \
   "$PROJECT_ROOT/data/indexes/.gitkeep"
 
 if [ ! -f "$PROJECT_ROOT/.env" ]; then
