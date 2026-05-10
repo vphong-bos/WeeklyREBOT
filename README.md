@@ -9,8 +9,9 @@
 The current flow is:
 1. Search candidate Jira issues in the selected date window.
 2. Fetch issue comments.
-3. Keep only comments written by the configured Jira account.
-4. Build either a prompt, a template report, or a Hugging Face generated report.
+3. Filter comments by retrieval mode and selected week.
+4. Extract issue metadata such as issue link, status, and start/due fields.
+5. Build either a prompt, a template report, or a Hugging Face generated report.
 
 ## Project Structure
 
@@ -42,15 +43,15 @@ WeeklyREBOT/
 ```
 
 ## Key Files
-- `app/ingestion/jira_client.py`: talks to Jira, searches candidate issues, and fetches paginated comments.
-- `app/retrieval/comment_filter.py`: keeps only comments written by `JIRA_ACCOUNT_ID` and only within the selected date range.
+- `app/ingestion/jira_client.py`: talks to Jira, caches Jira field metadata, searches candidate issues, and fetches paginated comments.
+- `app/retrieval/comment_filter.py`: defines retrieval modes and filters comments by author, mentions, reply status, and week range.
 - `app/utils/adf.py`: converts Jira ADF comment/description content into readable plain text.
 - `app/utils/dates.py`: parses Jira timestamps and resolves weekly date ranges.
 - `app/utils/config.py`: loads runtime settings from `.env`.
-- `app/bot/weekly_bot.py`: coordinates Jira retrieval and transforms the result into report items.
-- `app/llm/generator.py`: creates template output and prompt text from retrieved Jira items.
+- `app/bot/weekly_bot.py`: coordinates Jira retrieval, enriches issues with links and time fields, and transforms them into report items.
+- `app/llm/generator.py`: creates Confluence-style prompt and template output from retrieved Jira items.
 - `app/llm/hf_client.py`: runs Hugging Face text generation for final report mode.
-- `scripts/cli.py`: main command you run from the terminal.
+- `scripts/cli.py`: main command you run from the terminal and prints retrieved comment details before generating output.
 - `tests/test_comment_filter.py`: retrieval filter tests.
 - `tests/test_adf.py`: ADF-to-text conversion tests.
 
@@ -94,6 +95,10 @@ Generate a report for the previous week:
 python -m scripts.cli
 ```
 
+Note:
+- The current default mode is `prompt`.
+- To generate a final report, pass `--mode report`.
+
 Generate a report for a custom week:
 ```bash
 python -m scripts.cli --start 2026-05-04 --end 2026-05-10
@@ -122,17 +127,16 @@ python -m scripts.cli --start 2026-05-04 --end 2026-05-10 --output-path data/pro
 ## Current Retrieval Logic
 - Candidate issues are searched by `JIRA_PROJECT_KEYS` and issue `updated` date range.
 - All comments for each candidate issue are fetched with pagination.
-- Only comments authored by `JIRA_ACCOUNT_ID` are kept.
+- Comments are filtered through `retrieve_comments(...)` in `app/retrieval/comment_filter.py`.
+- The default retrieval mode is `member`, which keeps only comments authored by `JIRA_ACCOUNT_ID`.
+- A `leader` retrieval mode also exists in the filter module for mention-based retrieval.
+- Reply-style comments can be excluded by the filter configuration.
 - Only comments whose `created` timestamp falls inside the selected week are kept.
 - Jira ADF content is converted to plain text before prompt/report generation.
+- Empty comment bodies are skipped.
+- Issue start/due fields are resolved from Jira metadata when available.
 
 ## Output
 - Report mode writes markdown to `data/processed/` by default.
 - Prompt mode writes text to `data/prompt/` by default.
 - The CLI also prints the retrieved comment details and final retrieved comment count during execution.
-
-## TODO
-- Feed the generated weekly report into a Confluence-friendly format.
-- Improve prompt generation so the output structure is closer to the final weekly report format.
-- Refine retrieval to better identify only the current user's actual work items, not just issues with comment activity.
-- Support additional related jobs or tasks beyond the current comment-based retrieval flow.
