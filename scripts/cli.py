@@ -58,7 +58,7 @@ Examples:
     parser.add_argument(
         "--mode",
         choices=sorted(VALID_MODES),
-        default="report",
+        default="prompt",
         help=(
             "Generation mode."
             "  report: generate final weekly report. Uses Hugging Face by default."
