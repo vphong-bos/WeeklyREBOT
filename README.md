@@ -24,3 +24,13 @@ WeeklyREBOT/
 ├── .env # Store private api, double check if you want to push
 ├── requirements.txt
 └── README.md # It's me
+
+## Enviroment setup
+Please make sure setup_env.sh executable:
+```bash
+chmod +x setup_env.sh
+```
+Then run it, and we are all set:
+```bash
+./setup_env.sh
+```
