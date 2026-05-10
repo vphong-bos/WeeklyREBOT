@@ -13,6 +13,8 @@ class JiraClient:
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
+        self._fields_cache: list[dict] | None = None
+        self._field_name_by_id_cache: dict[str, str] | None = None
 
     def _get(
         self,
@@ -22,8 +24,9 @@ class JiraClient:
         retries: int = 3,
         backoff_seconds: float = 1.0,
         timeout: int = 60,
-    ) -> dict:
-        url = f"{self.settings.jira_base_url}{path}"
+    ) -> dict | list:
+        base_url = self.settings.jira_base_url.rstrip("/")
+        url = f"{base_url}{path}"
 
         last_error: Exception | None = None
 
@@ -72,6 +75,40 @@ class JiraClient:
             f"path={path}, params={params}, last_error={last_error}"
         )
 
+    def get_fields(self, *, refresh: bool = False) -> list[dict]:
+        """
+        Fetch Jira field metadata.
+
+        Jira custom fields usually appear in issue payloads as customfield_XXXXX.
+        This endpoint lets us map those IDs back to readable names such as
+        'Start date', 'Target start', or 'Due date'.
+        """
+        if self._fields_cache is not None and not refresh:
+            return self._fields_cache
+
+        result = self._get("/rest/api/3/field")
+
+        if not isinstance(result, list):
+            raise TypeError("Expected Jira /field response to be a list.")
+
+        self._fields_cache = result
+        self._field_name_by_id_cache = None
+        return result
+
+    def get_field_name_by_id(self, *, refresh: bool = False) -> dict[str, str]:
+        if self._field_name_by_id_cache is not None and not refresh:
+            return self._field_name_by_id_cache
+
+        fields = self.get_fields(refresh=refresh)
+
+        self._field_name_by_id_cache = {
+            field.get("id", ""): field.get("name", "")
+            for field in fields
+            if field.get("id")
+        }
+
+        return self._field_name_by_id_cache
+
     def _build_project_clause(self) -> str:
         if not self.settings.jira_project_keys:
             return ""
@@ -102,7 +139,7 @@ class JiraClient:
         jql: str,
         *,
         max_results: int = 100,
-        fields: str = "key,summary,status,description,updated,issuetype,parent,labels,components",
+        fields: str = "*all",
         next_page_token: str | None = None,
     ) -> dict:
         params = {
@@ -114,15 +151,29 @@ class JiraClient:
         if next_page_token:
             params["nextPageToken"] = next_page_token
 
-        return self._get(
+        result = self._get(
             "/rest/api/3/search/jql",
             params=params,
         )
 
-    def search_issues(self, week_start: str, week_end: str, max_results: int = 100) -> list[dict]:
+        if not isinstance(result, dict):
+            raise TypeError("Expected Jira search response to be a dict.")
+
+        return result
+
+    def search_issues(
+        self,
+        week_start: str,
+        week_end: str,
+        max_results: int = 100,
+        fields: str = "*all",
+    ) -> list[dict]:
         """
         Search candidate Jira issues by project and updated window.
-        Actual comment author/date filtering happens after fetching comments.
+
+        Using fields='*all' is useful while discovering custom fields.
+        Later, you can replace it with an explicit list once you know the
+        exact customfield_XXXXX IDs for start/due fields.
         """
         jql = self._build_candidate_issue_jql(week_start, week_end)
 
@@ -133,6 +184,7 @@ class JiraClient:
             result = self._search_issues_by_jql_page(
                 jql,
                 max_results=max_results,
+                fields=fields,
                 next_page_token=next_page_token,
             )
 
@@ -143,6 +195,7 @@ class JiraClient:
 
             if not next_page_token:
                 break
+
         return all_issues
 
     def get_issue_comments(self, issue_key: str) -> list[dict]:
@@ -162,6 +215,9 @@ class JiraClient:
                     "orderBy": "created",
                 },
             )
+
+            if not isinstance(result, dict):
+                raise TypeError("Expected Jira comments response to be a dict.")
 
             comments = result.get("comments", [])
             total = result.get("total", 0)
