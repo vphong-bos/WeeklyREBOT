@@ -1,4 +1,6 @@
-![WeeklyREBOT Logo](assets/logo.png)
+<p align="center">
+  <img src="assets/logo.png" alt="WeeklyREBOT Logo" width="200" height="200">
+</p>
 
 # WeeklyREBOT
 
